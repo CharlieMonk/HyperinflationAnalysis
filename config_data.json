@@ -1,0 +1,80 @@
+{
+  "hyperinflation_economies": {
+    "Argentina": {
+      "index_ticker": "^MERV",
+      "index_name": "MERVAL",
+      "currency_ticker": "USDARS=X",
+      "fred_currency": "CCUSMA02ARM618N",
+      "currency_name": "ARS",
+      "period_start": "2017-03-01",
+      "period_end": null,
+      "description": "Argentine peso crisis (2018-present)"
+    },
+    "Turkey": {
+      "index_ticker": "XU100.IS",
+      "index_name": "BIST 100",
+      "currency_ticker": "USDTRY=X",
+      "fred_currency": "CCUSMA02TRM618N",
+      "currency_name": "TRY",
+      "period_start": "2017-02-01",
+      "period_end": null,
+      "description": "Turkish lira crisis (2018-present)"
+    },
+    "Brazil": {
+      "index_ticker": "^BVSP",
+      "index_name": "Bovespa",
+      "currency_ticker": "USDBRL=X",
+      "fred_currency": "DEXBZUS",
+      "currency_name": "BRL",
+      "period_start": "1995-01-01",
+      "period_end": "2003-12-31",
+      "description": "Brazil post-hyperinflation stabilization (1995-2003)"
+    },
+    "Russia": {
+      "index_ticker": "IMOEX.ME",
+      "index_name": "MOEX",
+      "currency_ticker": "USDRUB=X",
+      "fred_currency": "CCUSMA02RUM618N",
+      "currency_name": "RUB",
+      "period_start": "2013-08-01",
+      "period_end": "2022-06-30",
+      "description": "Russian ruble crises (2014-2022)"
+    },
+    "Mexico": {
+      "index_ticker": "^MXX",
+      "index_name": "IPC",
+      "currency_ticker": "USDMXN=X",
+      "fred_currency": "DEXMXUS",
+      "currency_name": "MXN",
+      "period_start": "1994-01-01",
+      "period_end": "2002-11-30",
+      "description": "Mexican peso crisis / Tequila Crisis (1994-1996)"
+    },
+    "Indonesia": {
+      "index_ticker": "^JKSE",
+      "index_name": "IDX Composite",
+      "currency_ticker": "USDIDR=X",
+      "fred_currency": "DEXINUS",
+      "currency_name": "IDR",
+      "period_start": "1997-01-01",
+      "period_end": "2005-11-30",
+      "description": "Indonesian rupiah crisis / Asian Financial Crisis (1997-2000)"
+    }
+  },
+  "chart_colors": {
+    "background": "#1a1a2e",
+    "paper": "#16213e",
+    "grid": "#2a2a4a",
+    "text": "#e8e8e8",
+    "gold": "#ffd700",
+    "silver": "#b8b8b8",
+    "spike": "rgba(255, 255, 255, 0.5)",
+    "zero_line": "rgba(255, 255, 255, 0.3)",
+    "Argentina": "#00d4ff",
+    "Turkey": "#ff6b6b",
+    "Brazil": "#00ff88",
+    "Russia": "#ff9f43",
+    "Mexico": "#a55eea",
+    "Indonesia": "#26de81"
+  }
+}
