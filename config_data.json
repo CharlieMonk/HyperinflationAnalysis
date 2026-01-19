@@ -6,7 +6,7 @@
       "currency_ticker": "USDARS=X",
       "fred_currency": "CCUSMA02ARM618N",
       "currency_name": "ARS",
-      "period_start": "2017-03-01",
+      "period_start": "2018-01-01",
       "period_end": null,
       "description": "Argentine peso crisis (2018-present)"
     },
@@ -16,7 +16,7 @@
       "currency_ticker": "USDTRY=X",
       "fred_currency": "CCUSMA02TRM618N",
       "currency_name": "TRY",
-      "period_start": "2017-02-01",
+      "period_start": "2018-01-01",
       "period_end": null,
       "description": "Turkish lira crisis (2018-present)"
     },
@@ -36,7 +36,7 @@
       "currency_ticker": "USDRUB=X",
       "fred_currency": "CCUSMA02RUM618N",
       "currency_name": "RUB",
-      "period_start": "2013-08-01",
+      "period_start": "2014-01-01",
       "period_end": "2022-06-30",
       "description": "Russian ruble crises (2014-2022)"
     },
@@ -47,7 +47,7 @@
       "fred_currency": "DEXMXUS",
       "currency_name": "MXN",
       "period_start": "1994-01-01",
-      "period_end": "2002-11-30",
+      "period_end": "1996-12-31",
       "description": "Mexican peso crisis / Tequila Crisis (1994-1996)"
     },
     "Indonesia": {
@@ -57,7 +57,7 @@
       "fred_currency": "DEXINUS",
       "currency_name": "IDR",
       "period_start": "1997-01-01",
-      "period_end": "2005-11-30",
+      "period_end": "2000-12-31",
       "description": "Indonesian rupiah crisis / Asian Financial Crisis (1997-2000)"
     }
   },

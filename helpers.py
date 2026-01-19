@@ -128,9 +128,17 @@ def load_gold_silver_data(start_date=None, end_date=None, cache_dir=DEFAULT_CACH
 HYPERINFLATION_ECONOMIES = _CONFIG_DATA['hyperinflation_economies']
 
 
+def _date_to_cache_str(dt):
+    """Convert datetime to string for cache key."""
+    if hasattr(dt, 'strftime'):
+        return dt.strftime('%Y%m')
+    return str(dt)[:7].replace('-', '')
+
+
 def load_stock_index_data(ticker, start_date, end_date, cache_dir=DEFAULT_CACHE_DIR, verbose=True):
     """Load stock index data from Yahoo Finance."""
     cache_key = ticker.replace('^', '').replace('=', '_')
+    date_range = f"{_date_to_cache_str(start_date)}_{_date_to_cache_str(end_date)}"
 
     def download():
         data = yf.download(ticker, start=start_date, end=end_date, progress=False)
@@ -138,13 +146,14 @@ def load_stock_index_data(ticker, start_date, end_date, cache_dir=DEFAULT_CACHE_
             data.columns = data.columns.get_level_values(0)
         return data
 
-    data = load_or_download(f"index_{cache_key}.pkl", download, f"{ticker} index", cache_dir, verbose)
+    data = load_or_download(f"index_{cache_key}_{date_range}.pkl", download, f"{ticker} index", cache_dir, verbose)
     return data
 
 
 def load_currency_data(ticker, start_date, end_date, cache_dir=DEFAULT_CACHE_DIR, verbose=True):
     """Load currency exchange rate data from Yahoo Finance (USD per local currency unit)."""
     cache_key = ticker.replace('^', '').replace('=', '_')
+    date_range = f"{_date_to_cache_str(start_date)}_{_date_to_cache_str(end_date)}"
 
     def download():
         data = yf.download(ticker, start=start_date, end=end_date, progress=False)
@@ -152,12 +161,14 @@ def load_currency_data(ticker, start_date, end_date, cache_dir=DEFAULT_CACHE_DIR
             data.columns = data.columns.get_level_values(0)
         return data
 
-    data = load_or_download(f"currency_{cache_key}.pkl", download, f"{ticker} exchange rate", cache_dir, verbose)
+    data = load_or_download(f"currency_{cache_key}_{date_range}.pkl", download, f"{ticker} exchange rate", cache_dir, verbose)
     return data
 
 
 def load_currency_from_fred(fred_series, start_date, end_date, cache_dir=DEFAULT_CACHE_DIR, verbose=True):
     """Load currency exchange rate data from FRED."""
+    date_range = f"{_date_to_cache_str(start_date)}_{_date_to_cache_str(end_date)}"
+
     def download():
         try:
             data = web.DataReader(fred_series, 'fred', start_date, end_date)
@@ -167,13 +178,20 @@ def load_currency_from_fred(fred_series, start_date, end_date, cache_dir=DEFAULT
                 print(f"  Warning: Could not download {fred_series} from FRED: {e}")
             return pd.DataFrame()
 
-    data = load_or_download(f"fred_{fred_series}.pkl", download, f"{fred_series} from FRED", cache_dir, verbose)
+    data = load_or_download(f"fred_{fred_series}_{date_range}.pkl", download, f"{fred_series} from FRED", cache_dir, verbose)
     return data
 
 
-def load_hyperinflation_economy_data(country, cache_dir=DEFAULT_CACHE_DIR, verbose=True):
+def load_hyperinflation_economy_data(country, cache_dir=DEFAULT_CACHE_DIR, verbose=True, min_months=None):
     """
     Load all data for a hyperinflation economy.
+
+    Args:
+        country: Country name from HYPERINFLATION_ECONOMIES
+        cache_dir: Directory for cached data files
+        verbose: Print progress messages
+        min_months: Minimum months of data to load. If the country's crisis period
+                   is shorter, the period will be extended to reach this minimum.
 
     Returns a DataFrame with:
     - Stock index price (local currency)
@@ -188,6 +206,19 @@ def load_hyperinflation_economy_data(country, cache_dir=DEFAULT_CACHE_DIR, verbo
     config = HYPERINFLATION_ECONOMIES[country]
     start_date = pd.to_datetime(config['period_start'])
     end_date = pd.to_datetime(config['period_end']) if config['period_end'] else datetime.now()
+
+    # Extend period if min_months is specified and period is shorter
+    if min_months is not None:
+        period_months = (end_date.year - start_date.year) * 12 + (end_date.month - start_date.month) + 1
+        if period_months < min_months:
+            # Add 1 extra month as buffer to account for data availability gaps
+            months_to_add = min_months - period_months + 1
+            if config['period_end'] is None:
+                # Ongoing crisis: extend start date earlier
+                start_date = start_date - pd.DateOffset(months=months_to_add)
+            else:
+                # Historical crisis: extend end date later
+                end_date = end_date + pd.DateOffset(months=months_to_add)
 
     if verbose:
         print(f"\nLoading {country} data ({config['description']})...")
@@ -276,13 +307,21 @@ def load_hyperinflation_economy_data(country, cache_dir=DEFAULT_CACHE_DIR, verbo
     return combined, config
 
 
-def load_all_hyperinflation_data(cache_dir=DEFAULT_CACHE_DIR, verbose=True):
-    """Load data for all hyperinflation economies."""
+def load_all_hyperinflation_data(cache_dir=DEFAULT_CACHE_DIR, verbose=True, min_months=None):
+    """
+    Load data for all hyperinflation economies.
+
+    Args:
+        cache_dir: Directory for cached data files
+        verbose: Print progress messages
+        min_months: Minimum months of data to load per country. If a country's
+                   crisis period is shorter, it will be extended to this minimum.
+    """
     all_data = {}
 
     for country in HYPERINFLATION_ECONOMIES:
         try:
-            data, config = load_hyperinflation_economy_data(country, cache_dir, verbose)
+            data, config = load_hyperinflation_economy_data(country, cache_dir, verbose, min_months)
             all_data[country] = {'data': data, 'config': config}
         except Exception as e:
             print(f"Warning: Could not load data for {country}: {e}")
