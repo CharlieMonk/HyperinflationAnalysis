@@ -482,6 +482,10 @@ def create_single_country_chart(data, colors=None, use_pct_change=True):
     """
     Create a detailed chart for a single country's hyperinflation data.
 
+    Two subplots:
+    - Row 1: Currency metrics (USD, CPI-adjusted, PPP-adjusted, gold, silver)
+    - Row 2: Index metrics (USD, CPI-adjusted, PPP-adjusted, gold, silver)
+
     Args:
         data: Dict with series for the country (from prepare_country_data)
         colors: Optional color scheme dict
@@ -493,136 +497,151 @@ def create_single_country_chart(data, colors=None, use_pct_change=True):
     colors = colors or CHART_COLORS
     country = data['country']
     config = data['config']
-    color = colors.get(country, '#ffffff')
     idx = data['index']
 
     # Determine labels and scales based on data type
     if use_pct_change:
-        usd_title = f'{country}: Monthly % Change in USD Terms'
-        cpi_title = f'{country}: Monthly % Change (CPI-adjusted)'
-        ppp_title = f'{country}: Monthly % Change (PPP-adjusted)'
+        currency_title = f'{country}: {config["currency_name"]} Monthly % Change'
+        index_title = f'{country}: {config["index_name"]} Monthly % Change'
         y_type = 'linear'
         ref_line = 0
         hover_suffix = '%'
     else:
-        usd_title = f'{country}: Value in USD (Normalized to 100)'
-        cpi_title = f'{country}: Value CPI-adjusted (Normalized to 100)'
-        ppp_title = f'{country}: Value PPP-adjusted (Normalized to 100)'
+        currency_title = f'{country}: {config["currency_name"]} Value (Normalized to 100)'
+        index_title = f'{country}: {config["index_name"]} Value (Normalized to 100)'
         y_type = 'linear'
         ref_line = 100
         hover_suffix = ''
 
     fig = make_subplots(
-        rows=3, cols=1,
-        row_heights=[0.35, 0.35, 0.30],
+        rows=2, cols=1,
+        row_heights=[0.5, 0.5],
         shared_xaxes=True,
-        vertical_spacing=0.08,
-        subplot_titles=(usd_title, cpi_title, ppp_title)
+        vertical_spacing=0.10,
+        subplot_titles=(currency_title, index_title)
     )
 
-    # Row 1: USD-denominated (visible)
+    # Row 1: Currency metrics (dotted lines)
+    # USD (visible)
     fig.add_trace(
         go.Scatter(
             x=idx, y=data['currency_usd'],
             name=f'{config["currency_name"]} / USD',
-            line=dict(color=colors['usd'], dash='dot', width=LINE_WIDTH),
+            line=dict(color=colors['usd'], width=LINE_WIDTH, dash='dot'),
             hovertemplate=f'{config["currency_name"]} in USD: %{{y:.1f}}{hover_suffix}<extra></extra>',
         ),
         row=1, col=1
     )
+    # CPI-adjusted (visible)
     fig.add_trace(
         go.Scatter(
-            x=idx, y=data['index_usd'],
-            name=f'{config["index_name"]} / USD',
-            line=dict(color=colors['usd'], dash='solid', width=LINE_WIDTH),
-            hovertemplate=f'{config["index_name"]} in USD: %{{y:.1f}}{hover_suffix}<extra></extra>',
+            x=idx, y=data['currency_real'],
+            name=f'{config["currency_name"]} (CPI-adj)',
+            line=dict(color=colors['cpi'], width=LINE_WIDTH, dash='dot'),
+            hovertemplate=f'{config["currency_name"]} CPI-adj: %{{y:.1f}}{hover_suffix}<extra></extra>',
         ),
         row=1, col=1
     )
-    # Gold/Silver on row 1 (hidden by default)
+    # PPP-adjusted (visible)
+    fig.add_trace(
+        go.Scatter(
+            x=idx, y=data['currency_ppp'],
+            name=f'{config["currency_name"]} (PPP-adj)',
+            line=dict(color=colors['ppp'], width=LINE_WIDTH, dash='dot'),
+            hovertemplate=f'{config["currency_name"]} PPP-adj: %{{y:.1f}}{hover_suffix}<extra></extra>',
+        ),
+        row=1, col=1
+    )
+    # Gold (hidden by default)
     fig.add_trace(
         go.Scatter(
             x=idx, y=data['currency_gold'],
             name=f'{config["currency_name"]} / Gold',
-            line=dict(color=colors['gold'], dash='dot', width=LINE_WIDTH),
+            line=dict(color=colors['gold'], width=LINE_WIDTH, dash='dot'),
             hovertemplate=f'{config["currency_name"]} in Gold: %{{y:.1f}}{hover_suffix}<extra></extra>',
             visible='legendonly',
         ),
         row=1, col=1
     )
-    fig.add_trace(
-        go.Scatter(
-            x=idx, y=data['index_gold'],
-            name=f'{config["index_name"]} / Gold',
-            line=dict(color=colors['gold'], dash='solid', width=LINE_WIDTH),
-            hovertemplate=f'{config["index_name"]} in Gold: %{{y:.1f}}{hover_suffix}<extra></extra>',
-            visible='legendonly',
-        ),
-        row=1, col=1
-    )
+    # Silver (hidden by default)
     fig.add_trace(
         go.Scatter(
             x=idx, y=data['currency_silver'],
             name=f'{config["currency_name"]} / Silver',
-            line=dict(color=colors['silver'], dash='dot', width=LINE_WIDTH),
+            line=dict(color=colors['silver'], width=LINE_WIDTH, dash='dot'),
             hovertemplate=f'{config["currency_name"]} in Silver: %{{y:.1f}}{hover_suffix}<extra></extra>',
             visible='legendonly',
         ),
         row=1, col=1
     )
-    fig.add_trace(
-        go.Scatter(
-            x=idx, y=data['index_silver'],
-            name=f'{config["index_name"]} / Silver',
-            line=dict(color=colors['silver'], dash='solid', width=LINE_WIDTH),
-            hovertemplate=f'{config["index_name"]} in Silver: %{{y:.1f}}{hover_suffix}<extra></extra>',
-            visible='legendonly',
-        ),
-        row=1, col=1
-    )
 
-    # Row 2: CPI-adjusted (Real)
+    # Row 2: Index metrics (solid lines)
+    # USD (visible)
     fig.add_trace(
         go.Scatter(
-            x=idx, y=data['currency_real'],
-            name=f'{config["currency_name"]} (CPI-adj)',
-            line=dict(color=colors['cpi'], dash='dot', width=LINE_WIDTH),
-            hovertemplate=f'{config["currency_name"]} CPI-adj: %{{y:.1f}}{hover_suffix}<extra></extra>',
+            x=idx, y=data['index_usd'],
+            name=f'{config["index_name"]} / USD',
+            line=dict(color=colors['usd'], width=LINE_WIDTH),
+            hovertemplate=f'{config["index_name"]} in USD: %{{y:.1f}}{hover_suffix}<extra></extra>',
         ),
         row=2, col=1
     )
+    # CPI-adjusted (visible)
     fig.add_trace(
         go.Scatter(
             x=idx, y=data['index_real'],
             name=f'{config["index_name"]} (CPI-adj)',
-            line=dict(color=colors['cpi'], dash='solid', width=LINE_WIDTH),
+            line=dict(color=colors['cpi'], width=LINE_WIDTH),
             hovertemplate=f'{config["index_name"]} CPI-adj: %{{y:.1f}}{hover_suffix}<extra></extra>',
         ),
         row=2, col=1
     )
-
-    # Row 3: PPP-adjusted
-    fig.add_trace(
-        go.Scatter(
-            x=idx, y=data['currency_ppp'],
-            name=f'{config["currency_name"]} (PPP-adj)',
-            line=dict(color=colors['ppp'], dash='dot', width=LINE_WIDTH),
-            hovertemplate=f'{config["currency_name"]} PPP-adj: %{{y:.1f}}{hover_suffix}<extra></extra>',
-        ),
-        row=3, col=1
-    )
+    # PPP-adjusted (visible)
     fig.add_trace(
         go.Scatter(
             x=idx, y=data['index_ppp'],
             name=f'{config["index_name"]} (PPP-adj)',
-            line=dict(color=colors['ppp'], dash='solid', width=LINE_WIDTH),
+            line=dict(color=colors['ppp'], width=LINE_WIDTH),
             hovertemplate=f'{config["index_name"]} PPP-adj: %{{y:.1f}}{hover_suffix}<extra></extra>',
         ),
-        row=3, col=1
+        row=2, col=1
+    )
+    # Gold (hidden by default)
+    fig.add_trace(
+        go.Scatter(
+            x=idx, y=data['index_gold'],
+            name=f'{config["index_name"]} / Gold',
+            line=dict(color=colors['gold'], width=LINE_WIDTH),
+            hovertemplate=f'{config["index_name"]} in Gold: %{{y:.1f}}{hover_suffix}<extra></extra>',
+            visible='legendonly',
+        ),
+        row=2, col=1
+    )
+    # Silver (hidden by default)
+    fig.add_trace(
+        go.Scatter(
+            x=idx, y=data['index_silver'],
+            name=f'{config["index_name"]} / Silver',
+            line=dict(color=colors['silver'], width=LINE_WIDTH),
+            hovertemplate=f'{config["index_name"]} in Silver: %{{y:.1f}}{hover_suffix}<extra></extra>',
+            visible='legendonly',
+        ),
+        row=2, col=1
+    )
+    # Index Nominal (hidden by default)
+    fig.add_trace(
+        go.Scatter(
+            x=idx, y=data['index_local'],
+            name=f'{config["index_name"]} (Nominal)',
+            line=dict(color=colors.get(country, '#ffffff'), width=LINE_WIDTH),
+            hovertemplate=f'{config["index_name"]} Nominal: %{{y:.1f}}{hover_suffix}<extra></extra>',
+            visible='legendonly',
+        ),
+        row=2, col=1
     )
 
     # Reference lines
-    for row in [1, 2, 3]:
+    for row in [1, 2]:
         fig.add_hline(
             y=ref_line, line_dash='dash',
             line_color='rgba(255, 255, 255, 0.3)',
@@ -635,7 +654,7 @@ def create_single_country_chart(data, colors=None, use_pct_change=True):
 
     # Layout
     fig.update_layout(
-        height=650,
+        height=550,
         hovermode='x unified',
         paper_bgcolor=colors['paper'],
         plot_bgcolor=colors['background'],
@@ -658,24 +677,17 @@ def create_single_country_chart(data, colors=None, use_pct_change=True):
     # Y-axes
     fig.update_yaxes(
         title_text='Value',
-        title_font=dict(size=10, color=colors['usd']),
+        title_font=dict(size=10, color=colors['text']),
         gridcolor=colors['grid'],
         type=y_type,
         row=1, col=1
     )
     fig.update_yaxes(
         title_text='Value',
-        title_font=dict(size=10, color=colors['cpi']),
+        title_font=dict(size=10, color=colors['text']),
         gridcolor=colors['grid'],
         type=y_type,
         row=2, col=1
-    )
-    fig.update_yaxes(
-        title_text='Value',
-        title_font=dict(size=10, color=colors['ppp']),
-        gridcolor=colors['grid'],
-        type=y_type,
-        row=3, col=1
     )
 
     # X-axes
@@ -687,14 +699,9 @@ def create_single_country_chart(data, colors=None, use_pct_change=True):
     fig.update_xaxes(
         tickformat='%Y',
         gridcolor=colors['grid'],
-        row=2, col=1
-    )
-    fig.update_xaxes(
-        tickformat='%Y',
-        gridcolor=colors['grid'],
         title_text='Date',
         title_font=dict(size=10),
-        row=3, col=1
+        row=2, col=1
     )
 
     return fig
