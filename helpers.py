@@ -246,6 +246,16 @@ def load_hyperinflation_economy_data(country, cache_dir=DEFAULT_CACHE_DIR, verbo
     # Load gold and silver (already have this function)
     gold_monthly, _, silver_monthly, _ = load_gold_silver_data(start_date, end_date, cache_dir)
 
+    # Load CPI data for the country
+    cpi_data = None
+    fred_cpi = config.get('fred_cpi')
+    if fred_cpi:
+        cpi_data = load_currency_from_fred(fred_cpi, start_date, end_date, cache_dir, verbose)
+
+    # Load US CPI for PPP calculations
+    us_cpi_series = _CONFIG_DATA.get('fred_us_cpi', 'CPIAUCSL')
+    us_cpi_data = load_currency_from_fred(us_cpi_series, start_date, end_date, cache_dir, verbose)
+
     # Process data to monthly frequency
     if len(index_data) > 0:
         index_monthly = index_data['Close'].resample('ME').last()
@@ -274,12 +284,26 @@ def load_hyperinflation_economy_data(country, cache_dir=DEFAULT_CACHE_DIR, verbo
     else:
         usd_per_local = pd.Series(dtype=float)
 
+    # Process CPI data
+    if cpi_data is not None and len(cpi_data) > 0 and fred_cpi in cpi_data.columns:
+        cpi_monthly = cpi_data[fred_cpi].resample('ME').last()
+    else:
+        cpi_monthly = pd.Series(dtype=float)
+
+    # Process US CPI data
+    if us_cpi_data is not None and len(us_cpi_data) > 0 and us_cpi_series in us_cpi_data.columns:
+        us_cpi_monthly = us_cpi_data[us_cpi_series].resample('ME').last()
+    else:
+        us_cpi_monthly = pd.Series(dtype=float)
+
     # Combine into DataFrame
     combined = pd.DataFrame({
         f'{config["index_name"]}': index_monthly,
         f'{config["currency_name"]}/USD': usd_per_local,
         'Gold_USD': gold_monthly,
         'Silver_USD': silver_monthly,
+        'CPI': cpi_monthly,
+        'US_CPI': us_cpi_monthly,
     })
 
     # Calculate derived metrics
@@ -297,6 +321,41 @@ def load_hyperinflation_economy_data(country, cache_dir=DEFAULT_CACHE_DIR, verbo
 
     # Currency in Silver
     combined[f'{config["currency_name"]}_Silver'] = combined[f'{config["currency_name"]}/USD'] / combined['Silver_USD']
+
+    # Index in Real terms (CPI-adjusted, local purchasing power)
+    # Divide by CPI to get real value - higher CPI means lower real value
+    if 'CPI' in combined.columns and combined['CPI'].notna().any():
+        first_cpi = combined['CPI'].dropna().iloc[0]
+        combined[f'{config["index_name"]}_Real'] = combined[f'{config["index_name"]}'] / (combined['CPI'] / first_cpi)
+    else:
+        combined[f'{config["index_name"]}_Real'] = pd.Series(dtype=float, index=combined.index)
+
+    # Currency in Real terms (purchasing power relative to start)
+    if 'CPI' in combined.columns and combined['CPI'].notna().any():
+        first_cpi = combined['CPI'].dropna().iloc[0]
+        # Currency purchasing power decreases as CPI increases
+        combined[f'{config["currency_name"]}_Real'] = first_cpi / combined['CPI']
+    else:
+        combined[f'{config["currency_name"]}_Real'] = pd.Series(dtype=float, index=combined.index)
+
+    # PPP-adjusted values (using relative CPI between country and US)
+    # PPP adjusts for relative inflation differences
+    if 'CPI' in combined.columns and 'US_CPI' in combined.columns:
+        if combined['CPI'].notna().any() and combined['US_CPI'].notna().any():
+            first_cpi = combined['CPI'].dropna().iloc[0]
+            first_us_cpi = combined['US_CPI'].dropna().iloc[0]
+            # PPP exchange rate adjustment factor
+            ppp_factor = (combined['CPI'] / first_cpi) / (combined['US_CPI'] / first_us_cpi)
+            # Index in PPP terms (USD adjusted for relative inflation)
+            combined[f'{config["index_name"]}_PPP'] = combined[f'{config["index_name"]}_USD'] / ppp_factor
+            # Currency in PPP terms
+            combined[f'{config["currency_name"]}_PPP'] = combined[f'{config["currency_name"]}/USD'] / ppp_factor
+        else:
+            combined[f'{config["index_name"]}_PPP'] = pd.Series(dtype=float, index=combined.index)
+            combined[f'{config["currency_name"]}_PPP'] = pd.Series(dtype=float, index=combined.index)
+    else:
+        combined[f'{config["index_name"]}_PPP'] = pd.Series(dtype=float, index=combined.index)
+        combined[f'{config["currency_name"]}_PPP'] = pd.Series(dtype=float, index=combined.index)
 
     # Drop rows with missing key data
     combined = combined.dropna(subset=[f'{config["index_name"]}', f'{config["currency_name"]}/USD'])
@@ -368,8 +427,14 @@ def prepare_country_data(country_info, country_name=None, use_pct_change=True):
             'index_local': monthly_pct_change(df[index_name]).dropna(),
             'index_gold': monthly_pct_change(df[f'{index_name}_Gold']).dropna(),
             'index_silver': monthly_pct_change(df[f'{index_name}_Silver']).dropna(),
+            'index_usd': monthly_pct_change(df[f'{index_name}_USD']).dropna(),
+            'index_real': monthly_pct_change(df[f'{index_name}_Real']).dropna() if f'{index_name}_Real' in df.columns else pd.Series(dtype=float),
+            'index_ppp': monthly_pct_change(df[f'{index_name}_PPP']).dropna() if f'{index_name}_PPP' in df.columns else pd.Series(dtype=float),
             'currency_gold': monthly_pct_change(df[f'{currency_name}_Gold']).dropna(),
             'currency_silver': monthly_pct_change(df[f'{currency_name}_Silver']).dropna(),
+            'currency_usd': monthly_pct_change(df[f'{currency_name}/USD']).dropna(),
+            'currency_real': monthly_pct_change(df[f'{currency_name}_Real']).dropna() if f'{currency_name}_Real' in df.columns else pd.Series(dtype=float),
+            'currency_ppp': monthly_pct_change(df[f'{currency_name}_PPP']).dropna() if f'{currency_name}_PPP' in df.columns else pd.Series(dtype=float),
         }
     else:
         # Normalized to 100
@@ -380,8 +445,14 @@ def prepare_country_data(country_info, country_name=None, use_pct_change=True):
             'index_local': normalize_series(df[index_name]),
             'index_gold': normalize_series(df[f'{index_name}_Gold']),
             'index_silver': normalize_series(df[f'{index_name}_Silver']),
+            'index_usd': normalize_series(df[f'{index_name}_USD']),
+            'index_real': normalize_series(df[f'{index_name}_Real']) if f'{index_name}_Real' in df.columns and df[f'{index_name}_Real'].notna().any() else pd.Series(dtype=float, index=df.index),
+            'index_ppp': normalize_series(df[f'{index_name}_PPP']) if f'{index_name}_PPP' in df.columns and df[f'{index_name}_PPP'].notna().any() else pd.Series(dtype=float, index=df.index),
             'currency_gold': normalize_series(df[f'{currency_name}_Gold']),
             'currency_silver': normalize_series(df[f'{currency_name}_Silver']),
+            'currency_usd': normalize_series(df[f'{currency_name}/USD']),
+            'currency_real': normalize_series(df[f'{currency_name}_Real']) if f'{currency_name}_Real' in df.columns and df[f'{currency_name}_Real'].notna().any() else pd.Series(dtype=float, index=df.index),
+            'currency_ppp': normalize_series(df[f'{currency_name}_PPP']) if f'{currency_name}_PPP' in df.columns and df[f'{currency_name}_PPP'].notna().any() else pd.Series(dtype=float, index=df.index),
         }
 
     return result
@@ -427,87 +498,131 @@ def create_single_country_chart(data, colors=None, use_pct_change=True):
 
     # Determine labels and scales based on data type
     if use_pct_change:
-        precious_title = f'{country}: Monthly % Change in Precious Metals'
-        nominal_title = f'{country}: Monthly % Change - {config["index_name"]} ({config["currency_name"]})'
-        y1_title = 'Monthly % Change'
-        y2_title = 'Monthly % Change'
+        usd_title = f'{country}: Monthly % Change in USD Terms'
+        cpi_title = f'{country}: Monthly % Change (CPI-adjusted)'
+        ppp_title = f'{country}: Monthly % Change (PPP-adjusted)'
         y_type = 'linear'
-        ref_line = 0  # Reference at 0% for percent change
+        ref_line = 0
         hover_suffix = '%'
     else:
-        precious_title = f'{country}: Value in Precious Metals (Normalized to 100)'
-        nominal_title = f'{country}: Nominal {config["index_name"]} ({config["currency_name"]})'
-        y1_title = 'Value (Normalized)'
-        y2_title = 'Index Value'
+        usd_title = f'{country}: Value in USD (Normalized to 100)'
+        cpi_title = f'{country}: Value CPI-adjusted (Normalized to 100)'
+        ppp_title = f'{country}: Value PPP-adjusted (Normalized to 100)'
         y_type = 'linear'
         ref_line = 100
         hover_suffix = ''
 
     fig = make_subplots(
-        rows=2, cols=1,
-        row_heights=[0.55, 0.45],
+        rows=3, cols=1,
+        row_heights=[0.35, 0.35, 0.30],
         shared_xaxes=True,
         vertical_spacing=0.08,
-        subplot_titles=(precious_title, nominal_title)
+        subplot_titles=(usd_title, cpi_title, ppp_title)
     )
 
-    # Row 1: Gold and Silver denominated values
-    # Currency in Gold (dotted)
+    # Row 1: USD-denominated (visible)
+    fig.add_trace(
+        go.Scatter(
+            x=idx, y=data['currency_usd'],
+            name=f'{config["currency_name"]} / USD',
+            line=dict(color=colors['usd'], dash='dot', width=LINE_WIDTH),
+            hovertemplate=f'{config["currency_name"]} in USD: %{{y:.1f}}{hover_suffix}<extra></extra>',
+        ),
+        row=1, col=1
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=idx, y=data['index_usd'],
+            name=f'{config["index_name"]} / USD',
+            line=dict(color=colors['usd'], dash='solid', width=LINE_WIDTH),
+            hovertemplate=f'{config["index_name"]} in USD: %{{y:.1f}}{hover_suffix}<extra></extra>',
+        ),
+        row=1, col=1
+    )
+    # Gold/Silver on row 1 (hidden by default)
     fig.add_trace(
         go.Scatter(
             x=idx, y=data['currency_gold'],
             name=f'{config["currency_name"]} / Gold',
             line=dict(color=colors['gold'], dash='dot', width=LINE_WIDTH),
             hovertemplate=f'{config["currency_name"]} in Gold: %{{y:.1f}}{hover_suffix}<extra></extra>',
+            visible='legendonly',
         ),
         row=1, col=1
     )
-    # Currency in Silver (dotted)
-    fig.add_trace(
-        go.Scatter(
-            x=idx, y=data['currency_silver'],
-            name=f'{config["currency_name"]} / Silver',
-            line=dict(color=colors['silver'], dash='dot', width=LINE_WIDTH),
-            hovertemplate=f'{config["currency_name"]} in Silver: %{{y:.1f}}{hover_suffix}<extra></extra>',
-        ),
-        row=1, col=1
-    )
-    # Index in Gold (solid)
     fig.add_trace(
         go.Scatter(
             x=idx, y=data['index_gold'],
             name=f'{config["index_name"]} / Gold',
             line=dict(color=colors['gold'], dash='solid', width=LINE_WIDTH),
             hovertemplate=f'{config["index_name"]} in Gold: %{{y:.1f}}{hover_suffix}<extra></extra>',
+            visible='legendonly',
         ),
         row=1, col=1
     )
-    # Index in Silver (solid)
+    fig.add_trace(
+        go.Scatter(
+            x=idx, y=data['currency_silver'],
+            name=f'{config["currency_name"]} / Silver',
+            line=dict(color=colors['silver'], dash='dot', width=LINE_WIDTH),
+            hovertemplate=f'{config["currency_name"]} in Silver: %{{y:.1f}}{hover_suffix}<extra></extra>',
+            visible='legendonly',
+        ),
+        row=1, col=1
+    )
     fig.add_trace(
         go.Scatter(
             x=idx, y=data['index_silver'],
             name=f'{config["index_name"]} / Silver',
             line=dict(color=colors['silver'], dash='solid', width=LINE_WIDTH),
             hovertemplate=f'{config["index_name"]} in Silver: %{{y:.1f}}{hover_suffix}<extra></extra>',
+            visible='legendonly',
         ),
         row=1, col=1
     )
 
-    # Row 2: Nominal index in local currency
+    # Row 2: CPI-adjusted (Real)
     fig.add_trace(
         go.Scatter(
-            x=idx, y=data['index_local'],
-            name=f'{config["index_name"]} (Nominal)',
-            line=dict(color=color, width=LINE_WIDTH),
-            fill='tozeroy' if not use_pct_change else None,
-            fillcolor=f'rgba{tuple(list(int(color.lstrip("#")[i:i+2], 16) for i in (0, 2, 4)) + [0.2])}' if not use_pct_change else None,
-            hovertemplate=f'{config["index_name"]}: %{{y:.1f}}{hover_suffix}<extra></extra>',
+            x=idx, y=data['currency_real'],
+            name=f'{config["currency_name"]} (CPI-adj)',
+            line=dict(color=colors['cpi'], dash='dot', width=LINE_WIDTH),
+            hovertemplate=f'{config["currency_name"]} CPI-adj: %{{y:.1f}}{hover_suffix}<extra></extra>',
+        ),
+        row=2, col=1
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=idx, y=data['index_real'],
+            name=f'{config["index_name"]} (CPI-adj)',
+            line=dict(color=colors['cpi'], dash='solid', width=LINE_WIDTH),
+            hovertemplate=f'{config["index_name"]} CPI-adj: %{{y:.1f}}{hover_suffix}<extra></extra>',
         ),
         row=2, col=1
     )
 
+    # Row 3: PPP-adjusted
+    fig.add_trace(
+        go.Scatter(
+            x=idx, y=data['currency_ppp'],
+            name=f'{config["currency_name"]} (PPP-adj)',
+            line=dict(color=colors['ppp'], dash='dot', width=LINE_WIDTH),
+            hovertemplate=f'{config["currency_name"]} PPP-adj: %{{y:.1f}}{hover_suffix}<extra></extra>',
+        ),
+        row=3, col=1
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=idx, y=data['index_ppp'],
+            name=f'{config["index_name"]} (PPP-adj)',
+            line=dict(color=colors['ppp'], dash='solid', width=LINE_WIDTH),
+            hovertemplate=f'{config["index_name"]} PPP-adj: %{{y:.1f}}{hover_suffix}<extra></extra>',
+        ),
+        row=3, col=1
+    )
+
     # Reference lines
-    for row in [1, 2]:
+    for row in [1, 2, 3]:
         fig.add_hline(
             y=ref_line, line_dash='dash',
             line_color='rgba(255, 255, 255, 0.3)',
@@ -520,19 +635,19 @@ def create_single_country_chart(data, colors=None, use_pct_change=True):
 
     # Layout
     fig.update_layout(
-        height=450,
+        height=650,
         hovermode='x unified',
         paper_bgcolor=colors['paper'],
         plot_bgcolor=colors['background'],
         font=dict(color=colors['text'], size=10),
         legend=dict(
             orientation='h',
-            yanchor='top', y=1.15,
+            yanchor='top', y=1.12,
             xanchor='center', x=0.5,
             font=dict(size=9, color=colors['text']),
             bgcolor='rgba(0,0,0,0)',
         ),
-        margin=dict(t=70, l=55, r=40, b=35),
+        margin=dict(t=80, l=55, r=40, b=35),
         hoverlabel=dict(
             bgcolor=colors['paper'],
             font_size=11,
@@ -542,18 +657,25 @@ def create_single_country_chart(data, colors=None, use_pct_change=True):
 
     # Y-axes
     fig.update_yaxes(
-        title_text=y1_title,
-        title_font=dict(size=10),
+        title_text='Value',
+        title_font=dict(size=10, color=colors['usd']),
         gridcolor=colors['grid'],
         type=y_type,
         row=1, col=1
     )
     fig.update_yaxes(
-        title_text=y2_title,
-        title_font=dict(size=10),
+        title_text='Value',
+        title_font=dict(size=10, color=colors['cpi']),
         gridcolor=colors['grid'],
         type=y_type,
         row=2, col=1
+    )
+    fig.update_yaxes(
+        title_text='Value',
+        title_font=dict(size=10, color=colors['ppp']),
+        gridcolor=colors['grid'],
+        type=y_type,
+        row=3, col=1
     )
 
     # X-axes
@@ -565,9 +687,14 @@ def create_single_country_chart(data, colors=None, use_pct_change=True):
     fig.update_xaxes(
         tickformat='%Y',
         gridcolor=colors['grid'],
+        row=2, col=1
+    )
+    fig.update_xaxes(
+        tickformat='%Y',
+        gridcolor=colors['grid'],
         title_text='Date',
         title_font=dict(size=10),
-        row=2, col=1
+        row=3, col=1
     )
 
     return fig
@@ -581,24 +708,33 @@ def compute_performance_stats(normalized_data):
     """
     stats = {}
     metrics = [
+        ('currency_usd', 'Currency in USD'),
+        ('currency_real', 'Currency (CPI-adjusted)'),
+        ('currency_ppp', 'Currency (PPP-adjusted)'),
         ('currency_gold', 'Currency in Gold'),
         ('currency_silver', 'Currency in Silver'),
+        ('index_usd', 'Index in USD'),
+        ('index_real', 'Index (CPI-adjusted)'),
+        ('index_ppp', 'Index (PPP-adjusted)'),
         ('index_gold', 'Index in Gold'),
         ('index_silver', 'Index in Silver'),
         ('index_local', 'Index (Nominal)'),
     ]
 
     for key, label in metrics:
+        if key not in normalized_data:
+            continue
         series = normalized_data[key]
-        if len(series) > 0:
-            start_val = series.iloc[0]
-            end_val = series.iloc[-1]
-            pct_change = ((end_val / start_val) - 1) * 100
-            stats[label] = {
-                'start': start_val,
-                'end': end_val,
-                'change_pct': pct_change
-            }
+        if len(series) > 0 and series.notna().any():
+            start_val = series.dropna().iloc[0] if series.notna().any() else None
+            end_val = series.dropna().iloc[-1] if series.notna().any() else None
+            if start_val is not None and end_val is not None and start_val != 0:
+                pct_change = ((end_val / start_val) - 1) * 100
+                stats[label] = {
+                    'start': start_val,
+                    'end': end_val,
+                    'change_pct': pct_change
+                }
 
     return stats
 
@@ -617,32 +753,36 @@ def plot_aggregate_chart(prepared_data, colors=None, use_pct_change=False):
         Plotly figure object
     """
     colors = colors or CHART_COLORS
-    num_rows = DEFAULT_NUM_ROWS
+    num_rows = 5  # USD, CPI-adjusted, PPP-adjusted, Gold, Silver
 
     if use_pct_change:
         titles = (
+            'Monthly % Change in USD Terms',
+            'Monthly % Change (CPI-adjusted)',
+            'Monthly % Change (PPP-adjusted)',
             'Monthly % Change in Gold Terms',
             'Monthly % Change in Silver Terms',
-            'Monthly % Change - Stock Index (Local Currency)'
         )
         y_type = 'linear'
         ref_line = 0
-        y_labels = ['% Change', '% Change', '% Change']
+        y_labels = ['% Change', '% Change', '% Change', '% Change', '% Change']
     else:
         titles = (
+            'Value in USD (Normalized to 100)',
+            'Value CPI-adjusted (Normalized to 100)',
+            'Value PPP-adjusted (Normalized to 100)',
             'Value in Gold (Normalized to 100)',
             'Value in Silver (Normalized to 100)',
-            'Stock Index in Local Currency (Normalized to 100)'
         )
         y_type = 'linear'
         ref_line = 100
-        y_labels = ['Value', 'Value', 'Index']
+        y_labels = ['Value', 'Value', 'Value', 'Value', 'Value']
 
     fig = make_subplots(
         rows=num_rows, cols=1,
-        row_heights=[0.40, 0.30, 0.30],
+        row_heights=[0.25, 0.20, 0.20, 0.175, 0.175],
         shared_xaxes=True,
-        vertical_spacing=0.08,
+        vertical_spacing=0.05,
         subplot_titles=titles
     )
 
@@ -658,38 +798,119 @@ def plot_aggregate_chart(prepared_data, colors=None, use_pct_change=False):
 
         # Determine visibility based on default countries
         is_default_visible = country in default_visible_countries
+        # USD, CPI, PPP visible by default; Gold, Silver hidden
         index_visible = True if is_default_visible else 'legendonly'
         currency_visible = True if is_default_visible else 'legendonly'
+        # Gold and silver always start hidden
+        gold_silver_visible = 'legendonly'
 
         # Legend groups for synchronized toggling across subplots
         currency_group = f"{country}_currency"
         index_group = f"{country}_index"
 
-        # Row 1: Gold-denominated
+        # Row 1: USD-denominated (visible by default)
         fig.add_trace(
             go.Scatter(
-                x=months, y=data['currency_gold'],
+                x=months, y=data['currency_usd'],
                 name=f"{country} {config['currency_name']}",
                 legendgroup=currency_group,
                 line=dict(color=color, width=LINE_WIDTH, dash='dot'),
-                hovertemplate=f"{country} {config['currency_name']}/Gold: %{{y:.1f}}<br>Month %{{x}}<extra></extra>",
+                hovertemplate=f"{country} {config['currency_name']}/USD: %{{y:.1f}}<br>Month %{{x}}<extra></extra>",
                 visible=currency_visible,
             ),
             row=1, col=1
         )
         fig.add_trace(
             go.Scatter(
-                x=months, y=data['index_gold'],
+                x=months, y=data['index_usd'],
                 name=f"{country} {config['index_name']}",
                 legendgroup=index_group,
                 line=dict(color=color, width=LINE_WIDTH),
-                hovertemplate=f"{country} {config['index_name']}/Gold: %{{y:.1f}}<br>Month %{{x}}<extra></extra>",
+                hovertemplate=f"{country} {config['index_name']}/USD: %{{y:.1f}}<br>Month %{{x}}<extra></extra>",
                 visible=index_visible,
             ),
             row=1, col=1
         )
 
-        # Row 2: Silver-denominated
+        # Row 2: CPI-adjusted (visible by default)
+        fig.add_trace(
+            go.Scatter(
+                x=months, y=data['currency_real'],
+                name=f"{config['currency_name']}/CPI",
+                legendgroup=currency_group,
+                line=dict(color=color, width=LINE_WIDTH, dash='dot'),
+                showlegend=False,
+                hovertemplate=f"{country} {config['currency_name']} CPI-adj: %{{y:.1f}}<br>Month %{{x}}<extra></extra>",
+                visible=currency_visible,
+            ),
+            row=2, col=1
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=months, y=data['index_real'],
+                name=f"{config['index_name']}/CPI",
+                legendgroup=index_group,
+                line=dict(color=color, width=LINE_WIDTH),
+                showlegend=False,
+                hovertemplate=f"{country} {config['index_name']} CPI-adj: %{{y:.1f}}<br>Month %{{x}}<extra></extra>",
+                visible=index_visible,
+            ),
+            row=2, col=1
+        )
+
+        # Row 3: PPP-adjusted (visible by default)
+        fig.add_trace(
+            go.Scatter(
+                x=months, y=data['currency_ppp'],
+                name=f"{config['currency_name']}/PPP",
+                legendgroup=currency_group,
+                line=dict(color=color, width=LINE_WIDTH, dash='dot'),
+                showlegend=False,
+                hovertemplate=f"{country} {config['currency_name']} PPP-adj: %{{y:.1f}}<br>Month %{{x}}<extra></extra>",
+                visible=currency_visible,
+            ),
+            row=3, col=1
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=months, y=data['index_ppp'],
+                name=f"{config['index_name']}/PPP",
+                legendgroup=index_group,
+                line=dict(color=color, width=LINE_WIDTH),
+                showlegend=False,
+                hovertemplate=f"{country} {config['index_name']} PPP-adj: %{{y:.1f}}<br>Month %{{x}}<extra></extra>",
+                visible=index_visible,
+            ),
+            row=3, col=1
+        )
+
+        # Row 4: Gold-denominated (hidden by default)
+        fig.add_trace(
+            go.Scatter(
+                x=months, y=data['currency_gold'],
+                name=f"{config['currency_name']}/Gold",
+                legendgroup=currency_group,
+                line=dict(color=color, width=LINE_WIDTH, dash='dot'),
+                showlegend=False,
+                hovertemplate=f"{country} {config['currency_name']}/Gold: %{{y:.1f}}<br>Month %{{x}}<extra></extra>",
+                visible=gold_silver_visible,
+            ),
+            row=4, col=1
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=months, y=data['index_gold'],
+                name=f"{config['index_name']}/Gold",
+                legendgroup=index_group,
+                line=dict(color=color, width=LINE_WIDTH),
+                showlegend=False,
+                hovertemplate=f"{country} {config['index_name']}/Gold: %{{y:.1f}}<br>Month %{{x}}<extra></extra>",
+                visible=gold_silver_visible,
+            ),
+            row=4, col=1
+        )
+
+        # Row 5: Silver-denominated (hidden by default)
         fig.add_trace(
             go.Scatter(
                 x=months, y=data['currency_silver'],
@@ -698,9 +919,9 @@ def plot_aggregate_chart(prepared_data, colors=None, use_pct_change=False):
                 line=dict(color=color, width=LINE_WIDTH, dash='dot'),
                 showlegend=False,
                 hovertemplate=f"{country} {config['currency_name']}/Silver: %{{y:.1f}}<br>Month %{{x}}<extra></extra>",
-                visible=currency_visible,
+                visible=gold_silver_visible,
             ),
-            row=2, col=1
+            row=5, col=1
         )
         fig.add_trace(
             go.Scatter(
@@ -710,23 +931,9 @@ def plot_aggregate_chart(prepared_data, colors=None, use_pct_change=False):
                 line=dict(color=color, width=LINE_WIDTH),
                 showlegend=False,
                 hovertemplate=f"{country} {config['index_name']}/Silver: %{{y:.1f}}<br>Month %{{x}}<extra></extra>",
-                visible=index_visible,
+                visible=gold_silver_visible,
             ),
-            row=2, col=1
-        )
-
-        # Row 3: Nominal local currency
-        fig.add_trace(
-            go.Scatter(
-                x=months, y=data['index_local'],
-                name=f"{config['index_name']} ({config['currency_name']})",
-                legendgroup=index_group,
-                line=dict(color=color, width=LINE_WIDTH),
-                showlegend=False,
-                hovertemplate=f"{country} {config['index_name']}: %{{y:.1f}}<br>Month %{{x}}<extra></extra>",
-                visible=index_visible,
-            ),
-            row=3, col=1
+            row=5, col=1
         )
 
     # Reference lines
@@ -745,7 +952,7 @@ def plot_aggregate_chart(prepared_data, colors=None, use_pct_change=False):
 
     # Layout
     fig.update_layout(
-        height=750,
+        height=950,
         hovermode='x unified',
         paper_bgcolor=colors['paper'],
         plot_bgcolor=colors['background'],
@@ -765,9 +972,11 @@ def plot_aggregate_chart(prepared_data, colors=None, use_pct_change=False):
 
     # Y-axes
     yaxis_base = dict(gridcolor=colors['grid'], automargin=True, color=colors['text'], type=y_type)
-    fig.update_yaxes(title_text=y_labels[0], title_font=dict(size=10, color=colors['gold']), row=1, col=1, **yaxis_base)
-    fig.update_yaxes(title_text=y_labels[1], title_font=dict(size=10, color=colors['silver']), row=2, col=1, **yaxis_base)
-    fig.update_yaxes(title_text=y_labels[2], title_font=dict(size=10, color=colors['text']), row=3, col=1, **yaxis_base)
+    fig.update_yaxes(title_text=y_labels[0], title_font=dict(size=10, color=colors['usd']), row=1, col=1, **yaxis_base)
+    fig.update_yaxes(title_text=y_labels[1], title_font=dict(size=10, color=colors['cpi']), row=2, col=1, **yaxis_base)
+    fig.update_yaxes(title_text=y_labels[2], title_font=dict(size=10, color=colors['ppp']), row=3, col=1, **yaxis_base)
+    fig.update_yaxes(title_text=y_labels[3], title_font=dict(size=10, color=colors['gold']), row=4, col=1, **yaxis_base)
+    fig.update_yaxes(title_text=y_labels[4], title_font=dict(size=10, color=colors['silver']), row=5, col=1, **yaxis_base)
 
     # X-axes - months from crisis start
     xaxis_base = dict(
