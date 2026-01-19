@@ -182,6 +182,221 @@ def load_currency_from_fred(fred_series, start_date, end_date, cache_dir=DEFAULT
     return data
 
 
+# World Bank country code mapping for CPI data
+_WORLDBANK_COUNTRY_CODES = {
+    'Argentina': 'ARG',
+    'Turkey': 'TUR',
+    'Brazil': 'BRA',
+    'Russia': 'RUS',
+    'Mexico': 'MEX',
+    'Indonesia': 'IDN',
+}
+
+# US code for World Bank CPI
+_WORLDBANK_US_CODE = 'USA'
+
+
+def load_worldbank_cpi_data(cache_dir=DEFAULT_CACHE_DIR, verbose=True):
+    """
+    Load World Bank headline CPI monthly data.
+
+    Returns a DataFrame with country codes as columns and dates as index.
+    Data source: World Bank Global Inflation Database (hcpi_m sheet)
+    """
+    wb_file = os.path.join(cache_dir, "worldbank_inflation.xlsx")
+    wb_url = "https://thedocs.worldbank.org/en/doc/1ad246272dbbc437c74323719506aa0c-0350012021/original/Inflation-data.xlsx"
+
+    # Download if not exists
+    if not os.path.exists(wb_file):
+        if verbose:
+            print("  Downloading World Bank inflation data...")
+        os.makedirs(cache_dir, exist_ok=True)
+        urllib.request.urlretrieve(wb_url, wb_file)
+
+    # Load from cache if available
+    cache_file = os.path.join(cache_dir, "worldbank_cpi_parsed.pkl")
+    if os.path.exists(cache_file):
+        with open(cache_file, 'rb') as f:
+            return pickle.load(f)
+
+    # Parse the Excel file
+    df = pd.read_excel(wb_file, sheet_name='hcpi_m')
+
+    # Get date columns (integers in YYYYMM format)
+    date_cols = [c for c in df.columns if isinstance(c, int)]
+
+    # Convert to proper format
+    result = {}
+    for _, row in df.iterrows():
+        country_code = row['Country Code']
+        if pd.isna(country_code):
+            continue
+
+        # Extract time series for this country
+        values = {}
+        for col in date_cols:
+            if pd.notna(row[col]):
+                # Convert YYYYMM to datetime
+                year = col // 100
+                month = col % 100
+                if 1 <= month <= 12:
+                    date = pd.Timestamp(year=year, month=month, day=1) + pd.offsets.MonthEnd(0)
+                    values[date] = row[col]
+
+        if values:
+            result[country_code] = pd.Series(values).sort_index()
+
+    # Create DataFrame
+    cpi_df = pd.DataFrame(result)
+    cpi_df.index.name = 'Date'
+
+    # Cache the parsed data
+    with open(cache_file, 'wb') as f:
+        pickle.dump(cpi_df, f)
+
+    return cpi_df
+
+
+def get_worldbank_cpi_for_country(country, start_date, end_date, cache_dir=DEFAULT_CACHE_DIR, verbose=True):
+    """
+    Get World Bank CPI data for a specific country.
+
+    Returns a DataFrame with CPI values, similar format to FRED data.
+    """
+    wb_code = _WORLDBANK_COUNTRY_CODES.get(country)
+    if not wb_code:
+        return pd.DataFrame()
+
+    try:
+        cpi_df = load_worldbank_cpi_data(cache_dir, verbose=False)
+
+        if wb_code not in cpi_df.columns:
+            return pd.DataFrame()
+
+        series = cpi_df[wb_code]
+        series = series[(series.index >= start_date) & (series.index <= end_date)]
+
+        # Return as DataFrame with column name matching the pattern used by FRED
+        return pd.DataFrame({f'WB_{wb_code}_CPI': series})
+    except Exception as e:
+        if verbose:
+            print(f"  Warning: Could not load World Bank CPI for {country}: {e}")
+        return pd.DataFrame()
+
+
+def get_worldbank_us_cpi(start_date, end_date, cache_dir=DEFAULT_CACHE_DIR, verbose=True):
+    """Get World Bank US CPI data."""
+    try:
+        cpi_df = load_worldbank_cpi_data(cache_dir, verbose=False)
+
+        if _WORLDBANK_US_CODE not in cpi_df.columns:
+            return pd.DataFrame()
+
+        series = cpi_df[_WORLDBANK_US_CODE]
+        series = series[(series.index >= start_date) & (series.index <= end_date)]
+
+        return pd.DataFrame({'WB_USA_CPI': series})
+    except Exception as e:
+        if verbose:
+            print(f"  Warning: Could not load World Bank US CPI: {e}")
+        return pd.DataFrame()
+
+
+# DBnomics IMF country code mapping for CPI data
+_DBNOMICS_COUNTRY_CODES = {
+    'Argentina': 'AR',
+    'Turkey': 'TR',
+    'Brazil': 'BR',
+    'Russia': 'RU',
+    'Mexico': 'MX',
+    'Indonesia': 'ID',
+}
+
+_DBNOMICS_US_CODE = 'US'
+
+
+def get_dbnomics_cpi_for_country(country, start_date, end_date, cache_dir=DEFAULT_CACHE_DIR, verbose=True):
+    """
+    Get DBnomics IMF CPI data for a specific country.
+
+    Returns a DataFrame with CPI values. DBnomics aggregates IMF data which
+    is often more up-to-date than FRED or World Bank.
+    """
+    db_code = _DBNOMICS_COUNTRY_CODES.get(country)
+    if not db_code:
+        return pd.DataFrame()
+
+    cache_file = os.path.join(cache_dir, f"dbnomics_cpi_{db_code}.pkl")
+
+    try:
+        # Check cache first
+        if os.path.exists(cache_file):
+            with open(cache_file, 'rb') as f:
+                df = pickle.load(f)
+        else:
+            from dbnomics import fetch_series
+            if verbose:
+                print(f"  Fetching DBnomics CPI for {country}...")
+            series_id = f"IMF/CPI/M.{db_code}.PCPI_IX"
+            df = fetch_series(series_id)
+            # Cache the data
+            os.makedirs(cache_dir, exist_ok=True)
+            with open(cache_file, 'wb') as f:
+                pickle.dump(df, f)
+
+        if len(df) == 0:
+            return pd.DataFrame()
+
+        # Convert to time series format
+        df['period'] = pd.to_datetime(df['period'])
+        df = df.set_index('period')
+        series = df['value']
+        series = series[(series.index >= start_date) & (series.index <= end_date)]
+
+        # Align to month-end
+        series.index = series.index + pd.offsets.MonthEnd(0)
+
+        return pd.DataFrame({f'DBN_{db_code}_CPI': series})
+    except Exception as e:
+        if verbose:
+            print(f"  Warning: Could not load DBnomics CPI for {country}: {e}")
+        return pd.DataFrame()
+
+
+def get_dbnomics_us_cpi(start_date, end_date, cache_dir=DEFAULT_CACHE_DIR, verbose=True):
+    """Get DBnomics IMF US CPI data."""
+    cache_file = os.path.join(cache_dir, f"dbnomics_cpi_{_DBNOMICS_US_CODE}.pkl")
+
+    try:
+        if os.path.exists(cache_file):
+            with open(cache_file, 'rb') as f:
+                df = pickle.load(f)
+        else:
+            from dbnomics import fetch_series
+            if verbose:
+                print(f"  Fetching DBnomics US CPI...")
+            series_id = f"IMF/CPI/M.{_DBNOMICS_US_CODE}.PCPI_IX"
+            df = fetch_series(series_id)
+            os.makedirs(cache_dir, exist_ok=True)
+            with open(cache_file, 'wb') as f:
+                pickle.dump(df, f)
+
+        if len(df) == 0:
+            return pd.DataFrame()
+
+        df['period'] = pd.to_datetime(df['period'])
+        df = df.set_index('period')
+        series = df['value']
+        series = series[(series.index >= start_date) & (series.index <= end_date)]
+        series.index = series.index + pd.offsets.MonthEnd(0)
+
+        return pd.DataFrame({'DBN_US_CPI': series})
+    except Exception as e:
+        if verbose:
+            print(f"  Warning: Could not load DBnomics US CPI: {e}")
+        return pd.DataFrame()
+
+
 def load_hyperinflation_economy_data(country, cache_dir=DEFAULT_CACHE_DIR, verbose=True, min_months=None):
     """
     Load all data for a hyperinflation economy.
@@ -246,15 +461,23 @@ def load_hyperinflation_economy_data(country, cache_dir=DEFAULT_CACHE_DIR, verbo
     # Load gold and silver (already have this function)
     gold_monthly, _, silver_monthly, _ = load_gold_silver_data(start_date, end_date, cache_dir)
 
-    # Load CPI data for the country
+    # Load CPI data for the country (FRED + World Bank supplement)
     cpi_data = None
     fred_cpi = config.get('fred_cpi')
     if fred_cpi:
         cpi_data = load_currency_from_fred(fred_cpi, start_date, end_date, cache_dir, verbose)
 
-    # Load US CPI for PPP calculations
+    # Supplement with World Bank CPI data where FRED is missing
+    wb_cpi_data = get_worldbank_cpi_for_country(country, start_date, end_date, cache_dir, verbose)
+
+    # Supplement with DBnomics (IMF) CPI data where World Bank is missing
+    dbn_cpi_data = get_dbnomics_cpi_for_country(country, start_date, end_date, cache_dir, verbose)
+
+    # Load US CPI for PPP calculations (FRED + World Bank + DBnomics supplement)
     us_cpi_series = _CONFIG_DATA.get('fred_us_cpi', 'CPIAUCSL')
     us_cpi_data = load_currency_from_fred(us_cpi_series, start_date, end_date, cache_dir, verbose)
+    wb_us_cpi_data = get_worldbank_us_cpi(start_date, end_date, cache_dir, verbose)
+    dbn_us_cpi_data = get_dbnomics_us_cpi(start_date, end_date, cache_dir, verbose)
 
     # Process data to monthly frequency
     if len(index_data) > 0:
@@ -284,17 +507,75 @@ def load_hyperinflation_economy_data(country, cache_dir=DEFAULT_CACHE_DIR, verbo
     else:
         usd_per_local = pd.Series(dtype=float)
 
-    # Process CPI data
+    # Process CPI data - combine FRED and World Bank
+    cpi_monthly = pd.Series(dtype=float)
     if cpi_data is not None and len(cpi_data) > 0 and fred_cpi in cpi_data.columns:
         cpi_monthly = cpi_data[fred_cpi].resample('ME').last()
-    else:
-        cpi_monthly = pd.Series(dtype=float)
 
-    # Process US CPI data
+    # Supplement with World Bank data where FRED is missing
+    wb_code = _WORLDBANK_COUNTRY_CODES.get(country)
+    if wb_cpi_data is not None and len(wb_cpi_data) > 0:
+        wb_col = f'WB_{wb_code}_CPI'
+        if wb_col in wb_cpi_data.columns:
+            wb_cpi_monthly = wb_cpi_data[wb_col].resample('ME').last()
+            # Normalize World Bank data to match FRED data scale at overlap point
+            if len(cpi_monthly) > 0 and cpi_monthly.notna().any():
+                # Find last valid FRED value and corresponding WB value
+                last_fred_idx = cpi_monthly.last_valid_index()
+                if last_fred_idx is not None and last_fred_idx in wb_cpi_monthly.index:
+                    scale_factor = cpi_monthly[last_fred_idx] / wb_cpi_monthly[last_fred_idx]
+                    wb_cpi_monthly = wb_cpi_monthly * scale_factor
+                    # Fill in missing FRED values with scaled World Bank values
+                    cpi_monthly = cpi_monthly.combine_first(wb_cpi_monthly)
+            else:
+                # No FRED data, use World Bank directly
+                cpi_monthly = wb_cpi_monthly
+
+    # Supplement with DBnomics (IMF) data where World Bank is missing
+    dbn_code = _DBNOMICS_COUNTRY_CODES.get(country)
+    if dbn_cpi_data is not None and len(dbn_cpi_data) > 0:
+        dbn_col = f'DBN_{dbn_code}_CPI'
+        if dbn_col in dbn_cpi_data.columns:
+            dbn_cpi_monthly = dbn_cpi_data[dbn_col].resample('ME').last()
+            if len(cpi_monthly) > 0 and cpi_monthly.notna().any():
+                last_idx = cpi_monthly.last_valid_index()
+                if last_idx is not None and last_idx in dbn_cpi_monthly.index:
+                    scale_factor = cpi_monthly[last_idx] / dbn_cpi_monthly[last_idx]
+                    dbn_cpi_monthly = dbn_cpi_monthly * scale_factor
+                    cpi_monthly = cpi_monthly.combine_first(dbn_cpi_monthly)
+            else:
+                cpi_monthly = dbn_cpi_monthly
+
+    # Process US CPI data - combine FRED, World Bank, and DBnomics
+    us_cpi_monthly = pd.Series(dtype=float)
     if us_cpi_data is not None and len(us_cpi_data) > 0 and us_cpi_series in us_cpi_data.columns:
         us_cpi_monthly = us_cpi_data[us_cpi_series].resample('ME').last()
-    else:
-        us_cpi_monthly = pd.Series(dtype=float)
+
+    # Supplement US CPI with World Bank data where FRED is missing
+    if wb_us_cpi_data is not None and len(wb_us_cpi_data) > 0:
+        if 'WB_USA_CPI' in wb_us_cpi_data.columns:
+            wb_us_cpi_monthly = wb_us_cpi_data['WB_USA_CPI'].resample('ME').last()
+            if len(us_cpi_monthly) > 0 and us_cpi_monthly.notna().any():
+                last_fred_idx = us_cpi_monthly.last_valid_index()
+                if last_fred_idx is not None and last_fred_idx in wb_us_cpi_monthly.index:
+                    scale_factor = us_cpi_monthly[last_fred_idx] / wb_us_cpi_monthly[last_fred_idx]
+                    wb_us_cpi_monthly = wb_us_cpi_monthly * scale_factor
+                    us_cpi_monthly = us_cpi_monthly.combine_first(wb_us_cpi_monthly)
+            else:
+                us_cpi_monthly = wb_us_cpi_monthly
+
+    # Supplement US CPI with DBnomics data where World Bank is missing
+    if dbn_us_cpi_data is not None and len(dbn_us_cpi_data) > 0:
+        if 'DBN_US_CPI' in dbn_us_cpi_data.columns:
+            dbn_us_cpi_monthly = dbn_us_cpi_data['DBN_US_CPI'].resample('ME').last()
+            if len(us_cpi_monthly) > 0 and us_cpi_monthly.notna().any():
+                last_idx = us_cpi_monthly.last_valid_index()
+                if last_idx is not None and last_idx in dbn_us_cpi_monthly.index:
+                    scale_factor = us_cpi_monthly[last_idx] / dbn_us_cpi_monthly[last_idx]
+                    dbn_us_cpi_monthly = dbn_us_cpi_monthly * scale_factor
+                    us_cpi_monthly = us_cpi_monthly.combine_first(dbn_us_cpi_monthly)
+            else:
+                us_cpi_monthly = dbn_us_cpi_monthly
 
     # Combine into DataFrame
     combined = pd.DataFrame({
@@ -805,11 +1086,8 @@ def plot_aggregate_chart(prepared_data, colors=None, use_pct_change=False):
 
         # Determine visibility based on default countries
         is_default_visible = country in default_visible_countries
-        # USD, CPI, PPP visible by default; Gold, Silver hidden
         index_visible = True if is_default_visible else 'legendonly'
         currency_visible = True if is_default_visible else 'legendonly'
-        # Gold and silver always start hidden
-        gold_silver_visible = 'legendonly'
 
         # Legend groups for synchronized toggling across subplots
         currency_group = f"{country}_currency"
@@ -891,7 +1169,7 @@ def plot_aggregate_chart(prepared_data, colors=None, use_pct_change=False):
             row=3, col=1
         )
 
-        # Row 4: Gold-denominated (hidden by default)
+        # Row 4: Gold-denominated (visible by default)
         fig.add_trace(
             go.Scatter(
                 x=months, y=data['currency_gold'],
@@ -900,7 +1178,7 @@ def plot_aggregate_chart(prepared_data, colors=None, use_pct_change=False):
                 line=dict(color=color, width=LINE_WIDTH, dash='dot'),
                 showlegend=False,
                 hovertemplate=f"{country} {config['currency_name']}/Gold: %{{y:.1f}}<br>Month %{{x}}<extra></extra>",
-                visible=gold_silver_visible,
+                visible=currency_visible,
             ),
             row=4, col=1
         )
@@ -912,12 +1190,12 @@ def plot_aggregate_chart(prepared_data, colors=None, use_pct_change=False):
                 line=dict(color=color, width=LINE_WIDTH),
                 showlegend=False,
                 hovertemplate=f"{country} {config['index_name']}/Gold: %{{y:.1f}}<br>Month %{{x}}<extra></extra>",
-                visible=gold_silver_visible,
+                visible=index_visible,
             ),
             row=4, col=1
         )
 
-        # Row 5: Silver-denominated (hidden by default)
+        # Row 5: Silver-denominated (visible by default)
         fig.add_trace(
             go.Scatter(
                 x=months, y=data['currency_silver'],
@@ -926,7 +1204,7 @@ def plot_aggregate_chart(prepared_data, colors=None, use_pct_change=False):
                 line=dict(color=color, width=LINE_WIDTH, dash='dot'),
                 showlegend=False,
                 hovertemplate=f"{country} {config['currency_name']}/Silver: %{{y:.1f}}<br>Month %{{x}}<extra></extra>",
-                visible=gold_silver_visible,
+                visible=currency_visible,
             ),
             row=5, col=1
         )
@@ -938,7 +1216,7 @@ def plot_aggregate_chart(prepared_data, colors=None, use_pct_change=False):
                 line=dict(color=color, width=LINE_WIDTH),
                 showlegend=False,
                 hovertemplate=f"{country} {config['index_name']}/Silver: %{{y:.1f}}<br>Month %{{x}}<extra></extra>",
-                visible=gold_silver_visible,
+                visible=index_visible,
             ),
             row=5, col=1
         )
