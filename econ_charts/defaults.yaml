@@ -1,0 +1,69 @@
+# EconChart Default Configuration
+# Modify these values to customize chart appearance
+
+# Color scheme (dark theme)
+colors:
+  background: "#1a1a2e"
+  paper: "#16213e"
+  grid: "#2a2a4a"
+  text: "#e8e8e8"
+  spike: "rgba(255, 255, 255, 0.5)"
+  zero_line: "rgba(255, 255, 255, 0.3)"
+
+# Chart dimensions
+chart:
+  height: 600
+  vertical_spacing: 0.05
+  shared_xaxes: true
+
+# Line trace defaults
+line:
+  width: 1.5
+
+# Scatter trace defaults
+scatter:
+  marker_size: 6
+
+# Font sizes
+fonts:
+  main: 10
+  subplot_title: 11
+  hoverlabel: 11
+  legend: 9
+  axis_title: 10
+  chart_title: 13
+
+# Margins (pixels)
+margins:
+  top: 60
+  left: 55
+  right: 55
+  bottom: 35
+
+# Spike line settings
+spike:
+  thickness: 1
+  dash: "dot"
+
+# Horizontal reference line defaults
+hline:
+  dash: "dash"
+  width: 1
+
+# Legend position presets
+legend_positions:
+  top:
+    yanchor: "bottom"
+    y: 1.01
+    xanchor: "center"
+    x: 0.5
+  bottom:
+    yanchor: "top"
+    y: -0.1
+    xanchor: "center"
+    x: 0.5
+  right:
+    yanchor: "top"
+    y: 1
+    xanchor: "left"
+    x: 1.02

@@ -2,71 +2,25 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
+import yaml
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 
-# Default color scheme for dark theme economic charts
-DEFAULT_COLORS = {
-    'background': '#1a1a2e',
-    'paper': '#16213e',
-    'grid': '#2a2a4a',
-    'text': '#e8e8e8',
-    'spike': 'rgba(255, 255, 255, 0.5)',
-    'zero_line': 'rgba(255, 255, 255, 0.3)',
-}
+def _load_defaults() -> dict:
+    """Load default configuration from YAML file."""
+    defaults_path = os.path.join(os.path.dirname(__file__), 'defaults.yaml')
+    with open(defaults_path, 'r') as f:
+        return yaml.safe_load(f)
 
 
-def enable_unified_spikeline(fig: go.Figure, num_rows: int, x_range: tuple | None = None,
-                             spike_color: str = 'rgba(255, 255, 255, 0.5)') -> None:
-    """
-    Enable spike lines that span all subplots in a multi-row figure.
+_DEFAULTS = _load_defaults()
 
-    This is a workaround for Plotly 4.0+ where make_subplots creates separate
-    x-axes, preventing spike lines from spanning all subplots.
-    See: https://github.com/plotly/plotly.py/issues/1677
-
-    Args:
-        fig: Plotly figure with subplots
-        num_rows: Number of subplot rows
-        x_range: Optional tuple of (min, max) for x-axis range
-        spike_color: Color for the spike line
-    """
-    # Bind all traces to the bottom x-axis
-    fig.update_traces(xaxis=f'x{num_rows}')
-
-    # Add invisible traces to upper axes to force tick label rendering
-    # (Plotly won't render tick labels for axes with no bound traces)
-    if x_range is not None:
-        for row in range(1, num_rows):
-            fig.add_trace(go.Scatter(
-                x=list(x_range),
-                y=[0, 0],
-                mode='markers',
-                marker=dict(opacity=0),
-                showlegend=False,
-                hoverinfo='skip',
-                xaxis=f'x{row}' if row > 1 else 'x',
-                yaxis=f'y{row}' if row > 1 else 'y'
-            ))
-
-    # Sync upper x-axes to bottom x-axis so they zoom together and align labels
-    bottom_xaxis = f'x{num_rows}'
-    for row in range(1, num_rows):
-        fig.update_xaxes(row=row, col=1, matches=bottom_xaxis)
-
-    # Apply spike settings to all x-axes
-    spike_settings = dict(
-        showspikes=True,
-        spikemode='across',
-        spikesnap='cursor',
-        spikecolor=spike_color,
-        spikethickness=1,
-        spikedash='dot',
-    )
-    fig.update_xaxes(**spike_settings)
+# Export DEFAULT_COLORS for backward compatibility
+DEFAULT_COLORS = _DEFAULTS['colors'].copy()
 
 
 class EconChart:
@@ -97,9 +51,9 @@ class EconChart:
         row_heights: list[float] | None = None,
         subplot_titles: tuple[str, ...] | None = None,
         colors: dict[str, str] | None = None,
-        shared_xaxes: bool = True,
-        vertical_spacing: float = 0.05,
-        height: int = 600,
+        shared_xaxes: bool | None = None,
+        vertical_spacing: float | None = None,
+        height: int | None = None,
     ) -> None:
         """
         Initialize an EconChart.
@@ -108,17 +62,23 @@ class EconChart:
             num_rows: Number of subplot rows
             row_heights: List of relative heights for each row. Auto-equal if None.
             subplot_titles: Tuple of titles for each subplot
-            colors: Theme colors dict (defaults to DEFAULT_COLORS)
+            colors: Theme colors dict (defaults to colors from defaults.yaml)
             shared_xaxes: Whether to share x-axes across subplots
             vertical_spacing: Spacing between subplots (0-1)
             height: Chart height in pixels
         """
         self.num_rows = num_rows
-        self.colors = colors or DEFAULT_COLORS.copy()
-        self.height = height
+        self.colors = colors or _DEFAULTS['colors'].copy()
+        self.height = height or _DEFAULTS['chart']['height']
         self._spike_enabled = False
-        self._spike_color = self.colors.get('spike', 'rgba(255, 255, 255, 0.5)')
+        self._spike_color = self.colors.get('spike', _DEFAULTS['colors']['spike'])
         self._x_range: tuple | None = None
+
+        # Use defaults from YAML if not specified
+        if shared_xaxes is None:
+            shared_xaxes = _DEFAULTS['chart']['shared_xaxes']
+        if vertical_spacing is None:
+            vertical_spacing = _DEFAULTS['chart']['vertical_spacing']
 
         # Auto-calculate equal row heights if not specified
         if row_heights is None:
@@ -135,15 +95,15 @@ class EconChart:
 
         # Apply default dark theme layout
         self.fig.update_layout(
-            height=height,
+            height=self.height,
             hovermode='x unified',
-            paper_bgcolor=self.colors.get('paper', DEFAULT_COLORS['paper']),
-            plot_bgcolor=self.colors.get('background', DEFAULT_COLORS['background']),
-            font=dict(color=self.colors.get('text', DEFAULT_COLORS['text']), size=10),
+            paper_bgcolor=self.colors.get('paper', _DEFAULTS['colors']['paper']),
+            plot_bgcolor=self.colors.get('background', _DEFAULTS['colors']['background']),
+            font=dict(color=self.colors.get('text', _DEFAULTS['colors']['text']), size=_DEFAULTS['fonts']['main']),
             hoverlabel=dict(
-                bgcolor=self.colors.get('paper', DEFAULT_COLORS['paper']),
-                font_size=11,
-                font_color=self.colors.get('text', DEFAULT_COLORS['text']),
+                bgcolor=self.colors.get('paper', _DEFAULTS['colors']['paper']),
+                font_size=_DEFAULTS['fonts']['hoverlabel'],
+                font_color=self.colors.get('text', _DEFAULTS['colors']['text']),
             ),
         )
 
@@ -151,12 +111,12 @@ class EconChart:
         if subplot_titles:
             for annotation in self.fig['layout']['annotations']:
                 annotation['font'] = dict(
-                    size=11,
-                    color=self.colors.get('text', DEFAULT_COLORS['text'])
+                    size=_DEFAULTS['fonts']['subplot_title'],
+                    color=self.colors.get('text', _DEFAULTS['colors']['text'])
                 )
 
         # Apply default grid color to all axes
-        grid_color = self.colors.get('grid', DEFAULT_COLORS['grid'])
+        grid_color = self.colors.get('grid', _DEFAULTS['colors']['grid'])
         for row in range(1, num_rows + 1):
             self.fig.update_xaxes(gridcolor=grid_color, row=row, col=1)
             self.fig.update_yaxes(gridcolor=grid_color, row=row, col=1)
@@ -168,7 +128,7 @@ class EconChart:
         y: Any,
         name: str,
         color: str,
-        width: float = 1.5,
+        width: float | None = None,
         dash: str | None = None,
         hover_template: str | None = None,
         visible: bool | str = True,
@@ -194,6 +154,9 @@ class EconChart:
         Returns:
             Self for method chaining
         """
+        if width is None:
+            width = _DEFAULTS['line']['width']
+
         line_dict: dict[str, Any] = {'color': color, 'width': width}
         if dash:
             line_dict['dash'] = dash
@@ -225,7 +188,7 @@ class EconChart:
         y: Any,
         name: str,
         color: str,
-        marker_size: int = 6,
+        marker_size: int | None = None,
         hover_template: str | None = None,
         visible: bool | str = True,
         legendgroup: str | None = None,
@@ -249,6 +212,9 @@ class EconChart:
         Returns:
             Self for method chaining
         """
+        if marker_size is None:
+            marker_size = _DEFAULTS['scatter']['marker_size']
+
         trace_kwargs: dict[str, Any] = {
             'x': x,
             'y': y,
@@ -294,9 +260,9 @@ class EconChart:
         update_kwargs: dict[str, Any] = {'type': scale_type}
 
         if title:
-            title_font_color = title_color or self.colors.get('text', DEFAULT_COLORS['text'])
+            title_font_color = title_color or self.colors.get('text', _DEFAULTS['colors']['text'])
             update_kwargs['title_text'] = title
-            update_kwargs['title_font'] = dict(size=10, color=title_font_color)
+            update_kwargs['title_font'] = dict(size=_DEFAULTS['fonts']['axis_title'], color=title_font_color)
 
         if gridcolor:
             update_kwargs['gridcolor'] = gridcolor
@@ -331,7 +297,10 @@ class EconChart:
 
         if title:
             update_kwargs['title_text'] = title
-            update_kwargs['title_font'] = dict(size=10, color=self.colors.get('text', DEFAULT_COLORS['text']))
+            update_kwargs['title_font'] = dict(
+                size=_DEFAULTS['fonts']['axis_title'],
+                color=self.colors.get('text', _DEFAULTS['colors']['text'])
+            )
 
         if tick_format:
             update_kwargs['tickformat'] = tick_format
@@ -353,8 +322,8 @@ class EconChart:
         row: int,
         y: float,
         color: str | None = None,
-        dash: str = 'dash',
-        width: float = 1,
+        dash: str | None = None,
+        width: float | None = None,
     ) -> EconChart:
         """
         Add a horizontal reference line to a subplot.
@@ -369,12 +338,15 @@ class EconChart:
         Returns:
             Self for method chaining
         """
-        line_color = color or self.colors.get('zero_line', DEFAULT_COLORS['zero_line'])
+        line_color = color or self.colors.get('zero_line', _DEFAULTS['colors']['zero_line'])
+        line_dash = dash or _DEFAULTS['hline']['dash']
+        line_width = width or _DEFAULTS['hline']['width']
+
         self.fig.add_hline(
             y=y,
-            line_dash=dash,
+            line_dash=line_dash,
             line_color=line_color,
-            line_width=width,
+            line_width=line_width,
             row=row,
             col=1,
         )
@@ -412,41 +384,23 @@ class EconChart:
         """
         legend_kwargs: dict[str, Any] = {
             'orientation': orientation,
-            'font': dict(size=9, color=self.colors.get('text', DEFAULT_COLORS['text'])),
+            'font': dict(size=_DEFAULTS['fonts']['legend'], color=self.colors.get('text', _DEFAULTS['colors']['text'])),
             'bgcolor': 'rgba(0,0,0,0)',
         }
 
-        if position == 'top':
-            legend_kwargs.update({
-                'yanchor': 'bottom',
-                'y': 1.01,
-                'xanchor': 'center',
-                'x': 0.5,
-            })
-        elif position == 'bottom':
-            legend_kwargs.update({
-                'yanchor': 'top',
-                'y': -0.1,
-                'xanchor': 'center',
-                'x': 0.5,
-            })
-        elif position == 'right':
-            legend_kwargs.update({
-                'yanchor': 'top',
-                'y': 1,
-                'xanchor': 'left',
-                'x': 1.02,
-            })
+        # Get position settings from defaults
+        if position in _DEFAULTS['legend_positions']:
+            legend_kwargs.update(_DEFAULTS['legend_positions'][position])
 
         self.fig.update_layout(legend=legend_kwargs)
         return self
 
     def set_margins(
         self,
-        top: int = 60,
-        left: int = 55,
-        right: int = 55,
-        bottom: int = 35,
+        top: int | None = None,
+        left: int | None = None,
+        right: int | None = None,
+        bottom: int | None = None,
     ) -> EconChart:
         """
         Set chart margins.
@@ -460,10 +414,16 @@ class EconChart:
         Returns:
             Self for method chaining
         """
-        self.fig.update_layout(margin=dict(t=top, l=left, r=right, b=bottom))
+        margins = _DEFAULTS['margins']
+        self.fig.update_layout(margin=dict(
+            t=top if top is not None else margins['top'],
+            l=left if left is not None else margins['left'],
+            r=right if right is not None else margins['right'],
+            b=bottom if bottom is not None else margins['bottom'],
+        ))
         return self
 
-    def set_title(self, text: str, font_size: int = 13) -> EconChart:
+    def set_title(self, text: str, font_size: int | None = None) -> EconChart:
         """
         Set chart title.
 
@@ -474,10 +434,13 @@ class EconChart:
         Returns:
             Self for method chaining
         """
+        if font_size is None:
+            font_size = _DEFAULTS['fonts']['chart_title']
+
         self.fig.update_layout(
             title=dict(
                 text=text,
-                font=dict(size=font_size, color=self.colors.get('text', DEFAULT_COLORS['text'])),
+                font=dict(size=font_size, color=self.colors.get('text', _DEFAULTS['colors']['text'])),
                 y=0.99,
                 yanchor='top',
             )
@@ -494,12 +457,7 @@ class EconChart:
             Plotly Figure object
         """
         if self._spike_enabled:
-            enable_unified_spikeline(
-                self.fig,
-                self.num_rows,
-                x_range=self._x_range,
-                spike_color=self._spike_color,
-            )
+            self._apply_unified_spikeline()
         return self.fig
 
     def show(self) -> None:
@@ -531,3 +489,45 @@ class EconChart:
                     )
         except (TypeError, ValueError):
             pass  # Skip if x is not comparable
+
+    def _apply_unified_spikeline(self) -> None:
+        """
+        Apply spike lines that span all subplots.
+
+        This is a workaround for Plotly 4.0+ where make_subplots creates separate
+        x-axes, preventing spike lines from spanning all subplots.
+        See: https://github.com/plotly/plotly.py/issues/1677
+        """
+        # Bind all traces to the bottom x-axis
+        self.fig.update_traces(xaxis=f'x{self.num_rows}')
+
+        # Add invisible traces to upper axes to force tick label rendering
+        # (Plotly won't render tick labels for axes with no bound traces)
+        if self._x_range is not None:
+            for row in range(1, self.num_rows):
+                self.fig.add_trace(go.Scatter(
+                    x=list(self._x_range),
+                    y=[0, 0],
+                    mode='markers',
+                    marker=dict(opacity=0),
+                    showlegend=False,
+                    hoverinfo='skip',
+                    xaxis=f'x{row}' if row > 1 else 'x',
+                    yaxis=f'y{row}' if row > 1 else 'y'
+                ))
+
+        # Sync upper x-axes to bottom x-axis so they zoom together and align labels
+        bottom_xaxis = f'x{self.num_rows}'
+        for row in range(1, self.num_rows):
+            self.fig.update_xaxes(row=row, col=1, matches=bottom_xaxis)
+
+        # Apply spike settings to all x-axes
+        spike_settings = dict(
+            showspikes=True,
+            spikemode='across',
+            spikesnap='cursor',
+            spikecolor=self._spike_color,
+            spikethickness=_DEFAULTS['spike']['thickness'],
+            spikedash=_DEFAULTS['spike']['dash'],
+        )
+        self.fig.update_xaxes(**spike_settings)
