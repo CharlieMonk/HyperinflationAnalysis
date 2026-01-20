@@ -641,6 +641,10 @@ def load_hyperinflation_economy_data(country, cache_dir=DEFAULT_CACHE_DIR, verbo
     # Drop rows with missing key data
     combined = combined.dropna(subset=[f'{config["index_name"]}', f'{config["currency_name"]}/USD'])
 
+    # Convert month-end dates to month-start for proper gridline alignment
+    # (e.g., 2018-12-31 -> 2018-12-01 so Dec 2018 appears left of Jan 2019 gridline)
+    combined.index = combined.index.to_period('M').to_timestamp()
+
     if verbose:
         print(f"  Loaded {len(combined)} months of data")
 
