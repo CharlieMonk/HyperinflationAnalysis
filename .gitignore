@@ -10,3 +10,9 @@ __pycache__/
 
 # Data cache (downloaded data)
 data_cache/
+
+# Tests directory
+tests/
+
+# HTML exports
+*.html
