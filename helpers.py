@@ -763,6 +763,55 @@ DEFAULT_NUM_ROWS = 3
 CHART_COLORS = _CONFIG_DATA['chart_colors']
 
 
+def enable_unified_spikeline(fig, num_rows, x_range=None, spike_color='rgba(255, 255, 255, 0.5)'):
+    """
+    Enable spike lines that span all subplots in a multi-row figure.
+
+    This is a workaround for Plotly 4.0+ where make_subplots creates separate
+    x-axes, preventing spike lines from spanning all subplots.
+    See: https://github.com/plotly/plotly.py/issues/1677
+
+    Args:
+        fig: Plotly figure with subplots
+        num_rows: Number of subplot rows
+        x_range: Optional tuple of (min, max) for x-axis range
+        spike_color: Color for the spike line
+    """
+    # Bind all traces to the bottom x-axis
+    fig.update_traces(xaxis=f'x{num_rows}')
+
+    # Add invisible traces to upper axes to force tick label rendering
+    # (Plotly won't render tick labels for axes with no bound traces)
+    if x_range is not None:
+        for row in range(1, num_rows):
+            fig.add_trace(go.Scatter(
+                x=list(x_range),
+                y=[0, 0],
+                mode='markers',
+                marker=dict(opacity=0),
+                showlegend=False,
+                hoverinfo='skip',
+                xaxis=f'x{row}' if row > 1 else 'x',
+                yaxis=f'y{row}' if row > 1 else 'y'
+            ))
+
+    # Sync upper x-axes to bottom x-axis so they zoom together and align labels
+    bottom_xaxis = f'x{num_rows}'
+    for row in range(1, num_rows):
+        fig.update_xaxes(row=row, col=1, matches=bottom_xaxis)
+
+    # Apply spike settings to all x-axes
+    spike_settings = dict(
+        showspikes=True,
+        spikemode='across',
+        spikesnap='cursor',
+        spikecolor=spike_color,
+        spikethickness=1,
+        spikedash='dot',
+    )
+    fig.update_xaxes(**spike_settings)
+
+
 def create_single_country_chart(data, colors=None, use_pct_change=True):
     """
     Create a detailed chart for a single country's hyperinflation data.
@@ -990,6 +1039,10 @@ def create_single_country_chart(data, colors=None, use_pct_change=True):
         title_font=dict(size=10),
         row=2, col=1
     )
+
+    # Enable unified spike line spanning both subplots
+    date_range = (idx.min(), idx.max()) if len(idx) > 0 else None
+    enable_unified_spikeline(fig, num_rows=2, x_range=date_range, spike_color='rgba(255, 255, 255, 0.7)')
 
     return fig
 
@@ -1282,6 +1335,9 @@ def plot_aggregate_chart(prepared_data, colors=None, use_pct_change=False):
     for row in range(1, num_rows + 1):
         extra = {'title_text': 'Months from Crisis Start', 'title_font': dict(size=10, color=colors['text'])} if row == num_rows else {}
         fig.update_xaxes(row=row, col=1, **xaxis_base, **extra)
+
+    # Enable unified spike line spanning all subplots
+    enable_unified_spikeline(fig, num_rows=num_rows, x_range=x_range, spike_color='rgba(255, 255, 255, 0.7)')
 
     return fig
 
