@@ -3,7 +3,7 @@
 import os
 import pickle
 
-from config import DEFAULT_CACHE_DIR
+from .config import DEFAULT_CACHE_DIR
 
 
 def _date_to_cache_str(dt):

@@ -9,7 +9,7 @@ import pandas as pd
 import pandas_datareader.data as web
 import yfinance as yf
 
-from config import (
+from .config import (
     DEFAULT_START_DATE,
     DEFAULT_CACHE_DIR,
     HYPERINFLATION_ECONOMIES,
@@ -19,7 +19,7 @@ from config import (
     _DBNOMICS_US_CODE,
     get_fred_us_cpi_series,
 )
-from cache import load_or_download, _date_to_cache_str
+from .cache import load_or_download, _date_to_cache_str
 
 
 def load_gold_silver_data(start_date=None, end_date=None, cache_dir=DEFAULT_CACHE_DIR):

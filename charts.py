@@ -1,7 +1,7 @@
 """Backward compatibility re-exports for charts module."""
 
 from econ_charts import EconChart
-from hyperinflation_charts import (
+from lib.hyperinflation_charts import (
     LINE_WIDTH,
     create_single_country_chart,
     plot_aggregate_chart,

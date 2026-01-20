@@ -1,8 +1,8 @@
 """Hyperinflation-specific chart wrappers using EconChart."""
 
 from econ_charts import EconChart
-from config import CHART_COLORS
-from processing import compute_performance_stats
+from .config import CHART_COLORS
+from .processing import compute_performance_stats
 
 
 # Chart constants
