@@ -4,7 +4,7 @@
       "index_ticker": "^MERV",
       "index_name": "MERVAL",
       "currency_ticker": "USDARS=X",
-      "fred_currency": "CCUSMA02ARM618N",
+      "fred_currency": "ARGCCUSMA02STM",
       "fred_cpi": "ARGCPALTT01IXNBM",
       "currency_name": "ARS",
       "period_start": "2018-01-01",
