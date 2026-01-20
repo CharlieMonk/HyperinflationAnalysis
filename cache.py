@@ -13,6 +13,17 @@ def _date_to_cache_str(dt):
     return str(dt)[:7].replace('-', '')
 
 
+def _is_empty_result(data):
+    """Check if data is an empty result that shouldn't be cached."""
+    if data is None:
+        return True
+    if hasattr(data, 'empty') and data.empty:
+        return True
+    if hasattr(data, '__len__') and len(data) == 0:
+        return True
+    return False
+
+
 def load_or_download(cache_file, download_func, description, cache_dir=DEFAULT_CACHE_DIR, verbose=True):
     """Load from cache if exists, otherwise download and cache.
 
@@ -30,11 +41,21 @@ def load_or_download(cache_file, download_func, description, cache_dir=DEFAULT_C
     cache_path = os.path.join(cache_dir, cache_file)
     if os.path.exists(cache_path):
         with open(cache_path, 'rb') as f:
-            return pickle.load(f)
+            data = pickle.load(f)
+        if _is_empty_result(data):
+            if verbose:
+                print(f"  Cached {description} is empty, re-downloading...")
+            os.remove(cache_path)
+            data = download_func()
+            if not _is_empty_result(data):
+                with open(cache_path, 'wb') as f:
+                    pickle.dump(data, f)
+        return data
     else:
         if verbose:
             print(f"  Downloading {description}...")
         data = download_func()
-        with open(cache_path, 'wb') as f:
-            pickle.dump(data, f)
+        if not _is_empty_result(data):
+            with open(cache_path, 'wb') as f:
+                pickle.dump(data, f)
         return data
