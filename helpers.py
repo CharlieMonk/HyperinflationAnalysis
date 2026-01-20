@@ -798,7 +798,7 @@ def create_single_country_chart(data, colors=None, use_pct_change=True):
         rows=2, cols=1,
         row_heights=[0.5, 0.5],
         shared_xaxes=True,
-        vertical_spacing=0.10,
+        vertical_spacing=0.08,
         subplot_titles=(currency_title, index_title)
     )
 
@@ -941,13 +941,13 @@ def create_single_country_chart(data, colors=None, use_pct_change=True):
         plot_bgcolor=colors['background'],
         font=dict(color=colors['text'], size=10),
         legend=dict(
-            orientation='h',
-            yanchor='top', y=1.12,
-            xanchor='center', x=0.5,
+            orientation='v',
+            yanchor='top', y=1,
+            xanchor='left', x=1.02,
             font=dict(size=9, color=colors['text']),
             bgcolor='rgba(0,0,0,0)',
         ),
-        margin=dict(t=80, l=55, r=40, b=35),
+        margin=dict(t=60, l=55, r=180, b=35),
         hoverlabel=dict(
             bgcolor=colors['paper'],
             font_size=11,
@@ -971,14 +971,16 @@ def create_single_country_chart(data, colors=None, use_pct_change=True):
         row=2, col=1
     )
 
-    # X-axes
+    # X-axes - show month and year in hover
     fig.update_xaxes(
-        tickformat='%Y',
+        tickformat='%b %Y',
+        hoverformat='%b %Y',
         gridcolor=colors['grid'],
         row=1, col=1
     )
     fig.update_xaxes(
-        tickformat='%Y',
+        tickformat='%b %Y',
+        hoverformat='%b %Y',
         gridcolor=colors['grid'],
         title_text='Date',
         title_font=dict(size=10),
@@ -1242,15 +1244,15 @@ def plot_aggregate_chart(prepared_data, colors=None, use_pct_change=False):
         paper_bgcolor=colors['paper'],
         plot_bgcolor=colors['background'],
         font=dict(color=colors['text'], size=10),
-        title=dict(y=0.98, yanchor='top'),
+        title=dict(y=0.99, yanchor='top'),
         legend=dict(
             orientation='h',
-            yanchor='bottom', y=1.02,
+            yanchor='bottom', y=1.01,
             xanchor='center', x=0.5,
             font=dict(size=8, color=colors['text']),
             bgcolor='rgba(0,0,0,0)',
         ),
-        margin=dict(t=100, l=55, r=55, b=35),
+        margin=dict(t=120, l=55, r=55, b=35),
         hoverlabel=dict(bgcolor=colors['paper'], font_size=11, font_color=colors['text']),
         spikedistance=-1,
     )
