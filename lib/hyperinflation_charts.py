@@ -146,9 +146,10 @@ def create_single_country_chart(data, colors=None, use_pct_change=True):
     chart.set_yaxis(row=1, title='Value')
     chart.set_yaxis(row=2, title='Value')
 
-    # X-axes - show month and year in hover
-    chart.set_xaxis(row=1, tick_format='%b %Y', hover_format='%b %Y')
-    chart.set_xaxis(row=2, title='Date', tick_format='%b %Y', hover_format='%b %Y')
+    # X-axes - show month and year in hover, with explicit range to avoid padding
+    x_range = (idx[0], idx[-1])
+    chart.set_xaxis(row=1, tick_format='%b %Y', hover_format='%b %Y', range=x_range)
+    chart.set_xaxis(row=2, title='Date', tick_format='%b %Y', hover_format='%b %Y', range=x_range)
 
     # Layout
     chart.set_legend(orientation='v', position='right')
