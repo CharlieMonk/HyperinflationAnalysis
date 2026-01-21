@@ -392,17 +392,13 @@ def load_hyperinflation_economy_data(country, cache_dir=DEFAULT_CACHE_DIR, verbo
     end_date = pd.to_datetime(config['period_end']) if config['period_end'] else datetime.now()
 
     # Extend period if min_months is specified and period is shorter
+    # Always extend the end date, never the start, to preserve crisis start alignment
     if min_months is not None:
         period_months = (end_date.year - start_date.year) * 12 + (end_date.month - start_date.month) + 1
         if period_months < min_months:
             # Add 1 extra month as buffer to account for data availability gaps
             months_to_add = min_months - period_months + 1
-            if config['period_end'] is None:
-                # Ongoing crisis: extend start date earlier
-                start_date = start_date - pd.DateOffset(months=months_to_add)
-            else:
-                # Historical crisis: extend end date later
-                end_date = end_date + pd.DateOffset(months=months_to_add)
+            end_date = end_date + pd.DateOffset(months=months_to_add)
 
     if verbose:
         print(f"\nLoading {country} data ({config['description']})...")
